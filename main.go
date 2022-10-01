@@ -12,6 +12,8 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-xray-sdk-go/xray"
+	"golang.org/x/net/context/ctxhttp"
 )
 
 var whitelistedHost = map[string]struct{}{
@@ -24,6 +26,9 @@ func main() {
 }
 
 func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	_, subsegment := xray.BeginSubsegment(ctx, "handling request")
+	defer subsegment.Close(nil)
+
 	eventUrl := request.QueryStringParameters["url"]
 	parsedUrl, err := url.Parse(eventUrl)
 	if err != nil {
@@ -33,19 +38,22 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("host is not whitelisted: %s", parsedUrl.Host)
 	}
 
-	var httpFunc func(url string) (resp *http.Response, err error)
+	var httpFunc func(ctx context.Context, client *http.Client, url string) (resp *http.Response, err error)
 	switch request.HTTPMethod {
 	case http.MethodHead:
-		httpFunc = http.Head
+		httpFunc = ctxhttp.Head
 	default:
-		httpFunc = http.Get
+		httpFunc = ctxhttp.Get
 	}
 
-	resp, err := httpFunc(eventUrl)
+	resp, err := httpFunc(ctx, xray.Client(nil), eventUrl)
 	if err != nil {
 		return events.APIGatewayProxyResponse{}, err
 	}
 	defer resp.Body.Close()
+
+	_, subsegment2 := xray.BeginSubsegment(ctx, "image decode")
+	defer subsegment2.Close(nil)
 
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "image/") {
@@ -65,10 +73,7 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	return events.APIGatewayProxyResponse{
 		StatusCode: http.StatusOK,
 		Headers: map[string]string{
-			"Content-Type":                 contentType,
-			"Access-Control-Allow-Origin":  "*",
-			"Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-			"Access-Control-Allow-Methods": "GET, HEAD, OPTIONS, POST",
+			"Content-Type": contentType,
 		},
 		IsBase64Encoded: true,
 		Body:            imgBuffer.String(),
