@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -15,11 +16,6 @@ import (
 	"github.com/aws/aws-xray-sdk-go/xray"
 	"golang.org/x/net/context/ctxhttp"
 )
-
-var whitelistedHost = map[string]struct{}{
-	"s4.anilist.co":  {},
-	"media.kitsu.io": {},
-}
 
 func main() {
 	lambda.Start(Handler)
@@ -34,7 +30,8 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	if err != nil {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed to parse url: %w", err)
 	}
-	if _, ok := whitelistedHost[parsedUrl.Host]; !ok {
+
+	if !isWhiteListedHost(parsedUrl.Host) {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("host is not whitelisted: %s", parsedUrl.Host)
 	}
 
@@ -78,4 +75,14 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		IsBase64Encoded: true,
 		Body:            imgBuffer.String(),
 	}, nil
+}
+
+func isWhiteListedHost(host string) bool {
+	whitelistedHosts := strings.Split(os.Getenv("WHITELISTED_HOSTS"), ",")
+	for _, host := range whitelistedHosts {
+		if strings.EqualFold(host, host) {
+			return true
+		}
+	}
+	return false
 }
