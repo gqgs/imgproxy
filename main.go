@@ -32,7 +32,7 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	eventUrl := request.QueryStringParameters["url"]
 	parsedUrl, err := url.Parse(eventUrl)
 	if err != nil {
-		return events.APIGatewayProxyResponse{}, err
+		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed to parse url: %w", err)
 	}
 	if _, ok := whitelistedHost[parsedUrl.Host]; !ok {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("host is not whitelisted: %s", parsedUrl.Host)
@@ -48,7 +48,7 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 
 	resp, err := httpFunc(ctx, xray.Client(nil), eventUrl)
 	if err != nil {
-		return events.APIGatewayProxyResponse{}, err
+		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed to make http request: %w", err)
 	}
 	defer resp.Body.Close()
 
