@@ -79,8 +79,8 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 
 func isWhiteListedHost(host string) bool {
 	whitelistedHosts := strings.Split(os.Getenv("WHITELISTED_HOSTS"), ",")
-	for _, host := range whitelistedHosts {
-		if strings.EqualFold(host, host) {
+	for _, whitelistedHost := range whitelistedHosts {
+		if strings.EqualFold(whitelistedHost, host) {
 			return true
 		}
 	}
