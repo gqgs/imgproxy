@@ -53,7 +53,7 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	defer subsegment2.Close(nil)
 
 	contentType := resp.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "image/") {
+	if !strings.HasPrefix(contentType, "image/") || !strings.HasPrefix(contentType, "application/json") {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("invalid content type: %s", contentType)
 	}
 
