@@ -25,8 +25,12 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	_, subsegment := xray.BeginSubsegment(ctx, "handling request")
 	defer subsegment.Close(nil)
 
-	eventUrl := request.QueryStringParameters["url"]
-	parsedUrl, err := url.Parse(eventUrl)
+	eventUrl, err := base64.RawURLEncoding.DecodeString(request.QueryStringParameters["url"])
+	if err != nil {
+		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed decoding base64 string: %w", err)
+	}
+
+	parsedUrl, err := url.Parse(string(eventUrl))
 	if err != nil {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed to parse url: %w", err)
 	}
@@ -43,7 +47,7 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		httpFunc = ctxhttp.Get
 	}
 
-	resp, err := httpFunc(ctx, xray.Client(nil), eventUrl)
+	resp, err := httpFunc(ctx, xray.Client(nil), string(eventUrl))
 	if err != nil {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed to make http request: %w", err)
 	}
@@ -53,7 +57,7 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	defer subsegment2.Close(nil)
 
 	contentType := resp.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "image/") || !strings.HasPrefix(contentType, "application/json") {
+	if !strings.HasPrefix(contentType, "image/") && !strings.HasPrefix(contentType, "application/json") {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("invalid content type: %s", contentType)
 	}
 
