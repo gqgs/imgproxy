@@ -13,18 +13,16 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/aws-xray-sdk-go/xray"
-	"golang.org/x/net/context/ctxhttp"
+	"github.com/gqgs/pool"
 )
+
+var bufferPool = pool.New[bytes.Buffer]()
 
 func main() {
 	lambda.Start(Handler)
 }
 
 func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	_, subsegment := xray.BeginSubsegment(ctx, "handling request")
-	defer subsegment.Close(nil)
-
 	eventUrl, err := base64.RawURLEncoding.DecodeString(request.QueryStringParameters["url"])
 	if err != nil {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed decoding base64 string: %w", err)
@@ -39,29 +37,29 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("host is not whitelisted: %s", parsedUrl.Host)
 	}
 
-	var httpFunc func(ctx context.Context, client *http.Client, url string) (resp *http.Response, err error)
+	var httpFunc func(url string) (resp *http.Response, err error)
 	switch request.HTTPMethod {
 	case http.MethodHead:
-		httpFunc = ctxhttp.Head
+		httpFunc = http.Head
 	default:
-		httpFunc = ctxhttp.Get
+		httpFunc = http.Get
 	}
 
-	resp, err := httpFunc(ctx, xray.Client(nil), string(eventUrl))
+	resp, err := httpFunc(string(eventUrl))
 	if err != nil {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed to make http request: %w", err)
 	}
 	defer resp.Body.Close()
-
-	_, subsegment2 := xray.BeginSubsegment(ctx, "image decode")
-	defer subsegment2.Close(nil)
 
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "image/") && !strings.HasPrefix(contentType, "application/json") {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("invalid content type: %s", contentType)
 	}
 
-	imgBuffer := new(bytes.Buffer)
+	imgBuffer := bufferPool.Get()
+	defer bufferPool.Put(imgBuffer)
+	imgBuffer.Reset()
+
 	encoder := base64.NewEncoder(base64.StdEncoding, imgBuffer)
 	if _, err := io.Copy(encoder, resp.Body); err != nil {
 		return events.APIGatewayProxyResponse{}, fmt.Errorf("error reading from resp.Body: %w", err)
