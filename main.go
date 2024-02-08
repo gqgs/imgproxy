@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"fmt"
+	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,16 +26,20 @@ func main() {
 func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	eventUrl, err := base64.RawURLEncoding.DecodeString(request.QueryStringParameters["url"])
 	if err != nil {
-		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed decoding base64 string: %w", err)
+		slog.Error("failed decoding base64 string", "error", err.Error())
+		return events.APIGatewayProxyResponse{}, errors.New("failed decoding base64 string")
 	}
+	slog.Info("processing request", "url", eventUrl)
 
 	parsedUrl, err := url.Parse(string(eventUrl))
 	if err != nil {
-		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed to parse url: %w", err)
+		slog.Error("failed to parse url", "error", err.Error())
+		return events.APIGatewayProxyResponse{}, errors.New("failed to parse url")
 	}
 
 	if !isWhiteListedHost(parsedUrl.Host) {
-		return events.APIGatewayProxyResponse{}, fmt.Errorf("host is not whitelisted: %s", parsedUrl.Host)
+		slog.Error("host is not whitelisted", "host", parsedUrl.Host)
+		return events.APIGatewayProxyResponse{}, errors.New("host is not whitelisted")
 	}
 
 	var httpFunc func(url string) (resp *http.Response, err error)
@@ -47,13 +52,15 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 
 	resp, err := httpFunc(string(eventUrl))
 	if err != nil {
-		return events.APIGatewayProxyResponse{}, fmt.Errorf("failed to make http request: %w", err)
+		slog.Error("failed to make http request", "error", err.Error())
+		return events.APIGatewayProxyResponse{}, errors.New("failed to make http request")
 	}
 	defer resp.Body.Close()
 
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "image/") && !strings.HasPrefix(contentType, "application/json") {
-		return events.APIGatewayProxyResponse{}, fmt.Errorf("invalid content type: %s", contentType)
+		slog.Error("invalid content type", "mime-type", contentType)
+		return events.APIGatewayProxyResponse{}, errors.New("failed to make http request")
 	}
 
 	imgBuffer := bufferPool.Get()
@@ -62,11 +69,13 @@ func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 
 	encoder := base64.NewEncoder(base64.StdEncoding, imgBuffer)
 	if _, err := io.Copy(encoder, resp.Body); err != nil {
-		return events.APIGatewayProxyResponse{}, fmt.Errorf("error reading from resp.Body: %w", err)
+		slog.Error("error reading from resp.Body", "error", err.Error())
+		return events.APIGatewayProxyResponse{}, errors.New("error reading from resp.Body")
 	}
 
 	if err := encoder.Close(); err != nil {
-		return events.APIGatewayProxyResponse{}, fmt.Errorf("error closing base64 encoder: %w", err)
+		slog.Error("error closing base64 encoder", "error", err.Error())
+		return events.APIGatewayProxyResponse{}, errors.New("error closing base64 encoder")
 	}
 
 	return events.APIGatewayProxyResponse{
